@@ -2,5 +2,4 @@ streamlit
 pandas
 plotly
 networkx
-scipy
 snowflake-connector-python
