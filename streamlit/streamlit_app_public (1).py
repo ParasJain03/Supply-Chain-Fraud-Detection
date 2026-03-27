@@ -5,14 +5,12 @@ import plotly.express as px
 import networkx as nx
 import snowflake.connector
 
-# ── Page config ────────────────────────────────────────────
 st.set_page_config(
     page_title="Supply Chain Fraud Intelligence",
     page_icon="🔍",
     layout="wide"
 )
 
-# ── Connection ─────────────────────────────────────────────
 @st.cache_resource
 def get_connection():
     return snowflake.connector.connect(
@@ -33,17 +31,14 @@ def run_query(query):
     cols = [d[0] for d in cur.description]
     return pd.DataFrame(cur.fetchall(), columns=cols)
 
-# ── Header ─────────────────────────────────────────────────
 st.title("🔍 Supply Chain Fraud Intelligence")
 st.caption("Amazon & Flipkart · Neo4j Graph Analytics on Snowflake · Built for Hackathon")
 
-# ── Load all data ──────────────────────────────────────────
 risk_df  = run_query("SELECT * FROM SUPPLY_CHAIN_DB.PUBLIC.SELLER_RISK_MASTER ORDER BY RISK_SCORE DESC")
 edges_df = run_query("SELECT SOURCENODEID, TARGETNODEID, ORDER_VALUE FROM SUPPLY_CHAIN_DB.PUBLIC.ORDERS_GRAPH LIMIT 300")
 fraud_df = run_query("SELECT SOURCENODEID, TARGETNODEID FROM SUPPLY_CHAIN_DB.PUBLIC.SHARED_BANK_EDGES_GRAPH")
 wh_df    = run_query("SELECT NODEID FROM SUPPLY_CHAIN_DB.PUBLIC.WAREHOUSES_GRAPH")
 
-# ── KPI row ────────────────────────────────────────────────
 c1, c2, c3, c4, c5, c6 = st.columns(6)
 c1.metric("Total Sellers",    len(risk_df))
 c2.metric("🔴 High Risk",     len(risk_df[risk_df['RISK_LEVEL']=='HIGH']))
@@ -54,7 +49,6 @@ c6.metric("Suspicious Pairs", len(fraud_df))
 
 st.divider()
 
-# ── Tabs ───────────────────────────────────────────────────
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "🕸 Network Graph",
     "🔴 Fraud Rings",
@@ -63,14 +57,10 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📋 Risk Table"
 ])
 
-# ════════════════════════════════════════════════════════════
-# TAB 1 — Interactive Network Graph (Plotly — hoverable)
-# ════════════════════════════════════════════════════════════
 with tab1:
     st.subheader("Supply Chain Network — Seller → Warehouse")
     st.caption("Node size = PageRank score | Color = Risk level | Diamond = Warehouse")
 
-    # Build graph
     G = nx.DiGraph()
 
     sample_risk = risk_df.head(80)
@@ -96,7 +86,6 @@ with tab1:
 
     pos = nx.spring_layout(G, seed=42, k=0.8, iterations=40)
 
-    # Edges
     edge_x, edge_y = [], []
     for u, v in G.edges():
         x0, y0 = pos[u]; x1, y1 = pos[v]
@@ -109,14 +98,12 @@ with tab1:
 
     fig = go.Figure()
 
-    # Edge trace
     fig.add_trace(go.Scatter(
         x=edge_x, y=edge_y, mode='lines',
         line=dict(width=0.3, color='#aaaaaa'),
         hoverinfo='none', name='Orders', showlegend=False
     ))
 
-    # Seller trace
     fig.add_trace(go.Scatter(
         x=[pos[n][0] for n in seller_nodes],
         y=[pos[n][1] for n in seller_nodes],
@@ -137,7 +124,6 @@ with tab1:
         hoverinfo='text'
     ))
 
-    # Warehouse trace
     fig.add_trace(go.Scatter(
         x=[pos[n][0] for n in wh_nodes_g],
         y=[pos[n][1] for n in wh_nodes_g],
@@ -160,9 +146,6 @@ with tab1:
     )
     st.plotly_chart(fig, use_container_width=True)
 
-# ════════════════════════════════════════════════════════════
-# TAB 2 — Fraud Ring Detection
-# ════════════════════════════════════════════════════════════
 with tab2:
     st.subheader("Fraud Ring Network — WCC Entity Resolution")
     st.caption("Sellers sharing the same bank account are connected — each cluster = one real entity")
@@ -240,15 +223,13 @@ with tab2:
             Accounts=('NODEID','count'),
             Fraud_Count=('FRAUD_FLAG','sum'),
             Avg_Return=('RETURN_RATE','mean'),
-            Names=('SELLER_NAME', lambda x: ' | '.join(list(x)[:3]))
         ).reset_index()
+        names_df = risk_df.groupby('WCC_ENTITY')['SELLER_NAME'].apply(lambda x: ' | '.join(list(x)[:3])).reset_index(name='Names')
+        rings = rings.merge(names_df, on='WCC_ENTITY', how='left')
         rings = rings[rings['Accounts'] > 1].sort_values('Fraud_Count', ascending=False)
         st.warning(f"⚠ {len(rings)} duplicate identity groups detected")
         st.dataframe(rings, use_container_width=True, height=440)
 
-# ════════════════════════════════════════════════════════════
-# TAB 3 — Analytics
-# ════════════════════════════════════════════════════════════
 with tab3:
     st.subheader("Fraud Analytics")
 
@@ -282,17 +263,16 @@ with tab3:
         comm = risk_df.groupby('LOUVAIN_COMMUNITY').agg(
             Sellers=('NODEID','count'),
             Avg_Risk=('RISK_SCORE','mean'),
-            High_Risk=('RISK_LEVEL', lambda x: (x=='HIGH').sum())
-        ).reset_index().sort_values('Avg_Risk', ascending=False).head(15)
+        ).reset_index()
+        high_by_comm = risk_df[risk_df['RISK_LEVEL']=='HIGH'].groupby('LOUVAIN_COMMUNITY').size().reset_index(name='High_Risk')
+        comm = comm.merge(high_by_comm, on='LOUVAIN_COMMUNITY', how='left').fillna(0)
+        comm = comm.sort_values('Avg_Risk', ascending=False).head(15)
         fig6 = px.bar(comm, x='LOUVAIN_COMMUNITY', y='Avg_Risk',
             color='High_Risk', title='Top Communities by Avg Risk Score',
             color_continuous_scale='Reds')
         fig6.update_layout(plot_bgcolor='white')
         st.plotly_chart(fig6, use_container_width=True)
 
-# ════════════════════════════════════════════════════════════
-# TAB 4 — PageRank scatter
-# ════════════════════════════════════════════════════════════
 with tab4:
     st.subheader("PageRank vs Risk Score")
     st.caption("High PageRank + High Risk = most dangerous influential seller")
@@ -316,9 +296,6 @@ with tab4:
     ]
     st.dataframe(top_pr, use_container_width=True)
 
-# ════════════════════════════════════════════════════════════
-# TAB 5 — Full Risk Table
-# ════════════════════════════════════════════════════════════
 with tab5:
     st.subheader("Complete Seller Risk Table")
 
