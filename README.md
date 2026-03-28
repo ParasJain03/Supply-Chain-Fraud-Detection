@@ -365,6 +365,8 @@ This project is licensed under the MIT License — see the [LICENSE](LICENSE) fi
 ## 👤 Author
 
 **Paras Jain** — [@ParasJain03](https://github.com/ParasJain03)
+**Richa Grover** — [@RichaACN](https://github.com/RichaACN)
+**Arpit Raj** — [@Arpit599222](https://github.com/Arpit599222)
 
 ---
 
